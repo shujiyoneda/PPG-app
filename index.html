@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111b2c">
+  <meta name="description" content="スマートフォンの背面カメラで脈波を読み取り、脈拍と脈拍間隔の変動を推定します。">
+  <link rel="manifest" href="./manifest.json">
+  <title>Pulse Lab | 指先カメラPPG</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif; background:#0b1423; color:#f2f5fc; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100dvh; background:radial-gradient(circle at 100% 0, #293753 0, #0b1423 48%); }
+    button { font:inherit; cursor:pointer; }
+    .wrap { max-width:650px; margin:auto; padding:calc(21px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom)); }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand { display:flex; align-items:center; gap:10px; font-size:17px; font-weight:800; letter-spacing:.03em; }
+    .mark { width:34px; height:34px; border-radius:11px; display:grid; place-items:center; color:#fff; background:#f26072; box-shadow:0 7px 22px #f2607244; }
+    .install { border:1px solid #73839a; background:#1d2c42; color:#fff; padding:9px 13px; border-radius:12px; font-size:13px; font-weight:700; }
+    [hidden] { display:none !important; }
+    h1 { font-size:clamp(29px,7.5vw,43px); line-height:1.24; margin:34px 0 10px; letter-spacing:-.035em; }
+    .lead { color:#aebbd1; font-size:14px; line-height:1.75; margin:0 0 25px; }
+    .panel { border:1px solid #33435a; background:#17243aeb; box-shadow:0 20px 44px #02071157; border-radius:23px; overflow:hidden; }
+    .preview { height:210px; position:relative; background:#140e1d; overflow:hidden; }
+    video { width:100%; height:100%; object-fit:cover; display:block; opacity:.8; }
+    .preview::after { content:""; position:absolute; inset:0; background:linear-gradient(0deg,#0c1529a8,transparent 70%); pointer-events:none; }
+    .preview-label { position:absolute; bottom:17px; left:18px; z-index:1; font-size:13px; font-weight:700; background:#0e1726cc; padding:8px 10px; border-radius:10px; }
+    .meter { padding:22px 21px 20px; }
+    .eyebrow { margin:0 0 10px; color:#aebbd1; font-size:12px; letter-spacing:.07em; font-weight:700; }
+    .number { font-size:clamp(49px,17vw,78px); font-weight:750; letter-spacing:-.07em; line-height:1; font-variant-numeric:tabular-nums; }
+    .unit { font-size:17px; font-weight:600; letter-spacing:0; color:#aebbd1; margin-left:8px; }
+    canvas { display:block; width:100%; height:116px; margin:14px 0; border-radius:12px; background:#101c30; }
+    .status { min-height:38px; color:#cad7e8; line-height:1.5; font-size:13px; margin:0; }
+    .progress { height:6px; border-radius:9px; background:#35435a; overflow:hidden; margin:12px 0 21px; }
+    .progress span { display:block; height:100%; width:0; background:linear-gradient(90deg,#f26072,#ffa7ae); transition:width .2s; }
+    .controls { display:flex; gap:10px; }
+    .primary,.secondary { border:0; border-radius:13px; padding:15px 16px; font-weight:800; min-height:52px; }
+    .primary { flex:1; background:#f26072; color:#190e19; }
+    .primary:disabled { opacity:.55; cursor:default; }
+    .secondary { background:#33435a; color:#fff; }
+    .cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:13px; }
+    .card { border:1px solid #33435a; background:#17243a; border-radius:18px; padding:18px; }
+    .card strong { display:block; font-size:28px; margin-top:8px; font-variant-numeric:tabular-nums; }
+    .card small { color:#aebbd1; font-size:12px; line-height:1.5; }
+    .help { margin-top:25px; padding:2px 2px; color:#bac7d9; font-size:13px; line-height:1.8; }
+    .help h2 { color:#f2f5fc; font-size:16px; margin:0 0 8px; }
+    ol { padding-left:21px; margin:0; }
+    .note { font-size:12px; color:#93a2b8; margin:15px 0 0; line-height:1.7; }
+    .install-help { margin:12px 0 0; padding:11px 13px; border:1px solid #465977; border-radius:12px; color:#e1ebfa; font-size:13px; line-height:1.6; }
+    :focus-visible { outline:3px solid #ffc59c; outline-offset:3px; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div class="brand"><span class="mark" aria-hidden="true">♥</span> Pulse Lab</div>
+      <button class="install" id="install" type="button" hidden>アプリをインストール</button>
+    </header>
+    <h1>指先から、<br>脈拍のゆらぎを測る。</h1>
+    <p class="lead">背面カメラを指で覆い、約65秒間静かに測定します。結果は端末内で計算し、映像を保存・送信しません。</p>
+    <section class="panel" aria-label="計測">
+      <div class="preview">
+        <video id="video" autoplay muted playsinline aria-label="カメラ映像"></video>
+        <span class="preview-label" id="previewLabel">カメラ待機中</span>
+      </div>
+      <div class="meter">
+        <p class="eyebrow">推定脈拍</p>
+        <div><span class="number" id="bpm">--</span><span class="unit">拍 / 分</span></div>
+        <canvas id="wave" width="600" height="180" role="img" aria-label="カメラの脈波信号"></canvas>
+        <p class="status" id="status" role="status" aria-live="polite">準備ができたら測定を開始してください。</p>
+        <div class="progress" role="progressbar" aria-label="測定の進行" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress"><span id="progressFill"></span></div>
+        <div class="controls">
+          <button class="primary" id="start" type="button">測定を開始</button>
+          <button class="secondary" id="stop" type="button" hidden>中止</button>
+        </div>
+      </div>
+    </section>
+    <section class="cards" aria-label="測定結果">
+      <div class="card"><small>RMSSD · 脈拍間隔の短期変動</small><strong id="rmssd">--</strong><small>ms · 参考値</small></div>
+      <div class="card"><small>SDNN · 脈拍間隔のばらつき</small><strong id="sdnn">--</strong><small>ms · 60秒の参考値</small></div>
+    </section>
+    <section class="help">
+      <h2>測定のコツ</h2>
+      <ol>
+        <li>座って安静にし、背面カメラとライトを指の腹で軽く覆います。</li>
+        <li>強く押し付けず、画面を見ながら手とスマートフォンを動かさないでください。</li>
+        <li>映像が暗い、真っ白、または脈波が出ない場合は、指の位置を調整して再測定してください。</li>
+      </ol>
+      <p class="note">PPGによる脈拍間隔の変動（PRV）の推定です。心電図のHRVとは一致せず、端末・照明・体動で値が変わります。診断や治療判断には使えません。ライトが熱く感じたら直ちに中止してください。</p>
+      <p class="install-help" id="installHelp" hidden>インストールボタンが出ない場合：Chrome／Braveの ⋮ メニューから「アプリをインストール」または「ホーム画面に追加」を選んでください。表示項目はブラウザや端末により異なります。</p>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const $ = id => document.getElementById(id);
+    const video = $('video'), status = $('status'), canvas = $('wave'), ctx = canvas.getContext('2d');
+    const startButton = $('start'), stopButton = $('stop');
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = sampleCanvas.height = 32;
+    const sampleCtx = sampleCanvas.getContext('2d', {willReadFrequently:true});
+    let stream = null, track = null, running = false, callbackId = null, callbackType = null;
+    let begunAt = 0, samples = [], graph = [], lastCapture = 0, badSince = 0;
+    let promptEvent = null;
+    const WARMUP = 5000, DURATION = 60000;
+
+    // Relative URLs also work when GitHub Pages serves the app below /repository-name/.
+    if ('serviceWorker' in navigator && isSecureContext) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {
+        status.textContent = 'オフライン機能を登録できませんでした。ページを再読み込みしてください。';
+      }));
+    }
+    const installed = () => matchMedia('(display-mode: standalone)').matches;
+    window.addEventListener('beforeinstallprompt', event => {
+      event.preventDefault();
+      if (installed()) return;
+      promptEvent = event;
+      $('install').hidden = false;
+      $('installHelp').hidden = true;
+    });
+    window.addEventListener('appinstalled', () => {
+      promptEvent = null; $('install').hidden = true; $('installHelp').hidden = true;
+    });
+    $('install').addEventListener('click', async () => {
+      if (!promptEvent) return;
+      const event = promptEvent;
+      promptEvent = null;
+      $('install').hidden = true;
+      try { await event.prompt(); } catch { $('installHelp').hidden = false; }
+    });
+    setTimeout(() => { if (!promptEvent && !installed()) $('installHelp').hidden = false; }, 4500);
+
+    function setProgress(p) {
+      const value = Math.max(0, Math.min(100, Math.round(p)));
+      $('progressFill').style.width = value + '%';
+      $('progress').setAttribute('aria-valuenow', String(value));
+    }
+    function drawWave() {
+      const {width:w, height:h} = canvas;
+      ctx.clearRect(0,0,w,h);
+      ctx.strokeStyle = '#253752'; ctx.lineWidth = 1;
+      for (let y=36;y<h;y+=36) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+      if (graph.length < 2) return;
+      const recent = graph.slice(-180), values = recent.map(v=>v.v);
+      const ordered = [...values].sort((a,b)=>a-b);
+      const mid = ordered[Math.floor(ordered.length/2)];
+      const range = Math.max(.6, ordered[Math.floor(ordered.length*.9)] - ordered[Math.floor(ordered.length*.1)]);
+      ctx.beginPath(); ctx.strokeStyle = '#ff8493'; ctx.lineWidth = 3; ctx.lineJoin='round';
+      recent.forEach((point,i) => {
+        const x = i/(Math.max(1,recent.length-1))*w;
+        const y = Math.max(14,Math.min(h-14,h/2-(point.v-mid)*h/(range*2.4)));
+        i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+      });
+      ctx.stroke();
+    }
+    function cancelFrame() {
+      if (callbackId == null) return;
+      if (callbackType === 'video') video.cancelVideoFrameCallback(callbackId);
+      else cancelAnimationFrame(callbackId);
+      callbackId = null;
+    }
+    function stopCamera(message) {
+      running = false;
+      cancelFrame();
+      if (track && track.readyState === 'live') {
+        // Stopping the track also releases the torch on supported devices.
+        track.stop();
+      }
+      if (stream) stream.getTracks().forEach(t => { if (t.readyState === 'live') t.stop(); });
+      video.srcObject = null;
+      stream = track = null;
+      startButton.disabled = false;
+      startButton.hidden = false;
+      startButton.textContent = 'もう一度測定';
+      stopButton.hidden = true;
+      $('previewLabel').textContent = 'カメラ停止中';
+      if (message) status.textContent = message;
+    }
+    function scheduleFrame() {
+      if (!running) return;
+      if ('requestVideoFrameCallback' in video) {
+        callbackType = 'video'; callbackId = video.requestVideoFrameCallback(captureFrame);
+      } else {
+        callbackType = 'animation'; callbackId = requestAnimationFrame(captureFrame);
+      }
+    }
+    function readRed() {
+      const w=video.videoWidth, h=video.videoHeight;
+      if (!w || !h) return null;
+      const side=Math.max(1, Math.floor(Math.min(w,h)*.28));
+      sampleCtx.drawImage(video, Math.floor((w-side)/2), Math.floor((h-side)/2), side,side,0,0,32,32);
+      const data=sampleCtx.getImageData(0,0,32,32).data;
+      let r=0,g=0,b=0,clipped=0;
+      for(let i=0;i<data.length;i+=4){r+=data[i];g+=data[i+1];b+=data[i+2];if(data[i]>251)clipped++;}
+      return {r:r/1024,g:g/1024,b:b/1024, clipped:clipped/1024};
+    }
+    function captureFrame() {
+      callbackId=null;
+      if(!running) return;
+      const now=performance.now();
+      // RAF fallback may fire faster than the camera; cap duplicate frame sampling.
+      if(now-lastCapture < 25) { scheduleFrame(); return; }
+      lastCapture=now;
+      try {
+        const rgb=readRed();
+        if (rgb) {
+          const good=rgb.r>43 && rgb.r<249 && rgb.clipped<.18 && rgb.r>rgb.g*1.10 && rgb.r>rgb.b*1.10;
+          const elapsed=now-begunAt;
+          if (!good) {
+            if (!badSince) badSince=now;
+            const message='指で背面カメラとライトを覆い、光の強さを調整してください。';
+            if(status.textContent!==message) status.textContent=message;
+            if (badSince && now-badSince>2200) { stopCamera('映像の明るさ・色を確認できませんでした。指の位置を調整して再測定してください。'); return; }
+          } else {
+            badSince=0;
+            graph.push({t:now,v:rgb.r});
+            if(graph.length>180) graph.shift();
+            if(elapsed>=WARMUP) samples.push({t:now-WARMUP-begunAt,v:rgb.r});
+            const remaining=Math.max(0,Math.ceil((WARMUP+DURATION-elapsed)/1000));
+            const message=elapsed<WARMUP ? `カメラを安定させています。あと${remaining}秒` : `測定中：あと${remaining}秒。指を動かさないでください。`;
+            if(status.textContent!==message) status.textContent=message;
+            setProgress((elapsed-WARMUP)/DURATION*100);
+            if(graph.length%3===0) drawWave();
+            if(elapsed>=WARMUP+DURATION) {
+              const result=analyze(samples);
+              stopCamera();
+              if (!result) { status.textContent='脈波を十分に検出できませんでした。指の当て方を調整して再測定してください。'; return; }
+              $('bpm').textContent=String(Math.round(result.bpm));
+              $('rmssd').textContent=String(Math.round(result.rmssd));
+              $('sdnn').textContent=String(Math.round(result.sdnn));
+              status.textContent=`測定完了。${result.beats}拍を検出しました（参考値）。`;
+              setProgress(100);
+              return;
+            }
+          }
+        }
+      } catch { stopCamera('カメラ映像を処理できませんでした。ブラウザのカメラ権限を確認してください。'); return; }
+      scheduleFrame();
+    }
+
+    // Red-channel PPG; evenly resample then smooth and remove the slow baseline.
+    // The interval rejection below is deliberately conservative: no result is better than a false precision.
+    function analyze(input) {
+      if (input.length<950 || input.at(-1).t-input[0].t<57000) return null;
+      const gaps=input.slice(1).map((v,i)=>v.t-input[i].t);
+      if(gaps.filter(v=>v>160).length>2 || gaps.reduce((a,b)=>a+b,0)/gaps.length>55) return null;
+      const filtered=[]; let j=0,slow=0,fast=0;
+      const step=1000/30;
+      for(let t=input[0].t;t<=input.at(-1).t;t+=step){
+        while(j<input.length-2 && input[j+1].t<t) j++;
+        const a=input[j],b=input[j+1];
+        const mix=Math.max(0,Math.min(1,(t-a.t)/(b.t-a.t || 1)));
+        const value=a.v+(b.v-a.v)*mix;
+        if(!filtered.length) fast=slow=value;
+        fast+=(value-fast)*.32;
+        slow+=(value-slow)*.024;
+        filtered.push({t, v:fast-slow});
+      }
+      const stable=filtered.slice(60), ordered=stable.map(p=>p.v).sort((a,b)=>a-b);
+      const span=ordered[Math.floor(ordered.length*.9)]-ordered[Math.floor(ordered.length*.1)];
+      if(span<.23 || span>40) return null;
+      const threshold=Math.max(.12,span*.18), peaks=[];
+      for(let i=68;i<filtered.length-9;i++) {
+        const v=filtered[i].v;
+        if(v<filtered[i-1].v || v<=filtered[i+1].v || v<0) continue;
+        let left=Infinity,right=Infinity;
+        for(let k=1;k<=9;k++) {left=Math.min(left,filtered[i-k].v);right=Math.min(right,filtered[i+k].v);}
+        if(Math.min(v-left,v-right)<threshold) continue;
+        const prev=peaks.at(-1);
+        if(prev && filtered[i].t-prev.t<400) {if(v>prev.v) peaks[peaks.length-1]={t:filtered[i].t,v};}
+        else peaks.push({t:filtered[i].t,v});
+      }
+      if(peaks.length<38 || peaks.length>160) return null;
+      const rr=peaks.slice(1).map((p,i)=>p.t-peaks[i].t);
+      const normal=rr.filter(v=>v>=400 && v<=1500).sort((a,b)=>a-b);
+      if(normal.length<35) return null;
+      const median=normal[Math.floor(normal.length/2)];
+      const valid=rr.map(v=>v>=400 && v<=1500 && Math.abs(v-median)<=median*.25);
+      if(valid.filter(Boolean).length/rr.length<.88) return null;
+      const nn=rr.filter((_,i)=>valid[i]);
+      const differences=[];
+      for(let i=1;i<rr.length;i++) if(valid[i] && valid[i-1]) differences.push(rr[i]-rr[i-1]);
+      if(nn.length<35 || differences.length<30) return null;
+      const avg=nn.reduce((a,b)=>a+b,0)/nn.length;
+      const sdnn=Math.sqrt(nn.reduce((a,b)=>a+(b-avg)**2,0)/(nn.length-1));
+      const rmssd=Math.sqrt(differences.reduce((a,b)=>a+b*b,0)/differences.length);
+      if(!Number.isFinite(rmssd)||!Number.isFinite(sdnn)) return null;
+      return {bpm:60000/avg,rmssd,sdnn,beats:peaks.length};
+    }
+
+    startButton.addEventListener('click',async()=>{
+      if(running) return;
+      if(!isSecureContext || !navigator.mediaDevices?.getUserMedia){
+        status.textContent='カメラにはHTTPSが必要です。GitHub Pages等のHTTPSページから開いてください。';return;
+      }
+      startButton.disabled=true;
+      status.textContent='カメラの許可を確認しています…';
+      samples=[]; graph=[]; badSince=0; lastCapture=0; setProgress(0);
+      $('bpm').textContent=$('rmssd').textContent=$('sdnn').textContent='--';
+      try {
+        stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:640},height:{ideal:480},frameRate:{ideal:30}}});
+        track=stream.getVideoTracks()[0];
+        video.srcObject=stream;
+        await video.play();
+        // torch is a device-specific extension and must be requested after camera permission.
+        let torchOn=false;
+        try {if(track.getCapabilities?.().torch) {await track.applyConstraints({advanced:[{torch:true}]}); torchOn=true;}} catch {}
+        if(!track || track.readyState!=='live') throw new Error('camera ended');
+        running=true; begunAt=performance.now();
+        $('previewLabel').textContent=torchOn ? '背面カメラ・ライト使用中' : '背面カメラ使用中 · ライトは端末依存';
+        startButton.hidden=true; stopButton.hidden=false;
+        scheduleFrame();
+      } catch(error){
+        stopCamera(error.name==='NotAllowedError' ? 'カメラへのアクセスが拒否されました。ブラウザのサイト設定をご確認ください。' : '背面カメラを開始できませんでした。ほかのアプリを閉じて再試行してください。');
+      }
+    });
+    stopButton.addEventListener('click',()=>{stopCamera('測定を中止しました。'); startButton.hidden=false;});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden && (running||stream)) stopCamera('画面が非表示になったため測定を中止しました。');});
+    window.addEventListener('pagehide',()=>{if(running||stream) stopCamera();});
+    drawWave();
+  </script>
+</body>
+</html>
